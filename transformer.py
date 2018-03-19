@@ -24,9 +24,10 @@ def spatial_transformer_network(input_fmap, theta, out_dims=None, **kwargs):
       transformer layer is at the beginning of architecture. Should be 
       a tensor of shape (B, H, W, C). 
 
-    - theta: affine transform tensor of shape (B, 6). Permits cropping, 
-      translation and isotropic scaling. Initialize to identity matrix. 
-      It is the output of the localization network.
+    - theta: transform tensor of shape (B, X) where X <= 9. Permits
+      cropping, translation, isotropic scaling and projective transformation.
+      Initialize to identity matrix. It is the output of the localization
+      network.
 
     Returns
     -------
@@ -44,24 +45,50 @@ def spatial_transformer_network(input_fmap, theta, out_dims=None, **kwargs):
     W = tf.shape(input_fmap)[2]
     C = tf.shape(input_fmap)[3]
 
-    # reshape theta to (B, 2, 3)
-    theta = tf.reshape(theta, [B, 2, 3])
+    # pad theta to a 3x3 transform matrix
+    theta = pad_theta(theta)
+    # reshape theta to (B, 3, 3)
+    theta = tf.reshape(theta, [B, 3, 3])
 
     # generate grids of same size or upsample/downsample if specified
     if out_dims:
         out_H = out_dims[0]
         out_W = out_dims[1]
-        batch_grids = affine_grid_generator(out_H, out_W, theta)
+        x_s, y_s = affine_grid_generator(out_H, out_W, theta)
     else:
-        batch_grids = affine_grid_generator(H, W, theta)
-
-    x_s = batch_grids[:, 0, :, :]
-    y_s = batch_grids[:, 1, :, :]
+        x_s, y_s = affine_grid_generator(H, W, theta)
 
     # sample input with grid to get output
     out_fmap = bilinear_sampler(input_fmap, x_s, y_s)
 
     return out_fmap
+
+def pad_theta(theta):
+    """
+    Utility function to pad input theta to a 3x3 transformation matrix
+    using the 3x3 identity matrix.
+
+    Input
+    -----
+    - theta: tensor of shape (B, X) where X <= 9
+
+    Returns
+    -------
+    - theta_padded: input theta padded (if needed) to a 3x3 transform
+      matrix of shape (B, 9)
+    """
+    B = tf.shape(theta)[0]
+    theta_params = tf.shape(theta)[1]
+
+    assertion = tf.Assert(theta_params <= 9, [theta_params])
+
+    with tf.control_dependencies([assertion]):
+        identity_flat = tf.reshape(tf.eye(3), [3*3])
+        identity_remaining = identity_flat[theta_params:]
+        identity_batch = tf.reshape(tf.tile(identity_remaining, [B]), [B, 9-theta_params])
+        theta_padded = tf.concat([theta, identity_batch], axis=1)
+
+        return theta_padded
 
 def get_pixel_value(img, x, y):
     """
@@ -148,12 +175,16 @@ def affine_grid_generator(height, width, theta):
 
     # transform the sampling grid - batch multiply
     batch_grids = tf.matmul(theta, sampling_grid)
-    # batch grid has shape (num_batch, 2, H*W)
+    # batch grid has shape (num_batch, 3, H*W)
 
-    # reshape to (num_batch, H, W, 2)
-    batch_grids = tf.reshape(batch_grids, [num_batch, 2, height, width])
+    # reshape to (num_batch, H, W, 3)
+    batch_grids = tf.reshape(batch_grids, [num_batch, 3, height, width])
 
-    return batch_grids
+    # homogeneous -> 2D (divide by w)
+    x_s = batch_grids[:, 0, :, :] / batch_grids[:, 2, :, :]
+    y_s = batch_grids[:, 1, :, :] / batch_grids[:, 2, :, :]
+
+    return x_s, y_s
 
 def bilinear_sampler(img, x, y):
     """
