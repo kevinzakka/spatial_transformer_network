@@ -44,7 +44,7 @@ A more general projective transformation can also be specified through the trans
 
 ## Explore
 
-Run the [Sanity Check](https://github.com/kevinzakka/spatial-transformer-network/blob/master/Sanity%20Check.ipynb) to get a feel of how the spatial transformer can be plugged into any existing code. For example, here's the result of a 45 degree rotation and a projective warp:
+Run the [Sanity Check](https://github.com/kevinzakka/spatial-transformer-network/blob/master/Sanity%20Check.ipynb) to get a feel of how the spatial transformer can be plugged into any existing code. For example, here's the result of a 45 degree rotation and a separate projective warp:
 
 <p align="center">
  <img src="./img/b4.png" alt="Drawing" width="30%">
